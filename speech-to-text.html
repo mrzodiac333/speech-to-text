@@ -4,8 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Speech to Text</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.2/jspdf.umd.min.js">
-</script>
+<script src="https://unpkg.com/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>
 <style>
 :root {
   --bg: #1a1a2e;
@@ -531,17 +530,23 @@ function formatForExport(fmt, text, label) {
 
 function downloadExport(fmt, text, name) {
   if (fmt === 'pdf') {
-    const { jsPDF } = window.jspdf;
-    const doc = new jsPDF();
-    const lines = doc.splitTextToSize(text.trim(), 170);
-    doc.setFontSize(12);
-    let y = 20;
-    for (const line of lines) {
-      if (y > 275) { doc.addPage(); y = 20; }
-      doc.text(line, 20, y);
-      y += 7;
+    try {
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF();
+      const lines = doc.splitTextToSize(text.trim() || ' ', 170);
+      doc.setFontSize(12);
+      let y = 20;
+      for (const line of lines) {
+        if (y > 275) { doc.addPage(); y = 20; }
+        doc.text(line, 20, y);
+        y += 7;
+      }
+      doc.save(`${name}.pdf`);
+    } catch (e) {
+      const w = window.open('', '_blank');
+      w.document.write(`<html><head><title>${name}</title><style>body{font-family:sans-serif;max-width:700px;margin:40px auto;line-height:1.7;padding:0 20px;white-space:pre-wrap}</style></head><body>${text.trim().replace(/\n/g, '<br>')}<br><br><i>Use File → Print (Ctrl+P) to save as PDF</i></body></html>`);
+      w.document.close();
     }
-    doc.save(`${name}.pdf`);
     return;
   }
   const content = formatForExport(fmt, text, name);
