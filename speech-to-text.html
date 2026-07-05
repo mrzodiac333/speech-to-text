@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Speech to Text</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.2/jspdf.umd.min.js">
+</script>
 <style>
 :root {
   --bg: #1a1a2e;
@@ -391,6 +393,7 @@ body {
         <button data-format="md">Markdown (.md)</button>
         <button data-format="srt">Subtitles (.srt)</button>
         <button data-format="html">HTML (.html)</button>
+        <button data-format="pdf">PDF (.pdf)</button>
       </div>
     </div>
   </div>
@@ -527,6 +530,20 @@ function formatForExport(fmt, text, label) {
 }
 
 function downloadExport(fmt, text, name) {
+  if (fmt === 'pdf') {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF();
+    const lines = doc.splitTextToSize(text.trim(), 170);
+    doc.setFontSize(12);
+    let y = 20;
+    for (const line of lines) {
+      if (y > 275) { doc.addPage(); y = 20; }
+      doc.text(line, 20, y);
+      y += 7;
+    }
+    doc.save(`${name}.pdf`);
+    return;
+  }
   const content = formatForExport(fmt, text, name);
   const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
   const a = document.createElement('a');
