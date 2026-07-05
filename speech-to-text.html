@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Speech to Text</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: #1a1a2e;
+  color: #eee;
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+.container {
+  background: #16213e;
+  padding: 2rem;
+  border-radius: 16px;
+  width: 90%;
+  max-width: 720px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+}
+h1 { text-align: center; margin-bottom: 1.5rem; font-size: 1.5rem; color: #0f3460; }
+.status-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 1rem;
+  padding: 10px 16px;
+  background: #0f3460;
+  border-radius: 8px;
+  font-size: 0.9rem;
+}
+.indicator {
+  width: 12px; height: 12px;
+  border-radius: 50%;
+  background: #555;
+  flex-shrink: 0;
+  transition: all 0.3s;
+}
+.indicator.listening { background: #e94560; box-shadow: 0 0 12px #e94560; animation: pulse 1s infinite; }
+.indicator.paused { background: #f5a623; box-shadow: 0 0 12px #f5a623; }
+.indicator.idle { background: #555; }
+@keyframes pulse {
+  0%, 100% { box-shadow: 0 0 4px #e94560; }
+  50% { box-shadow: 0 0 16px #e94560; }
+}
+.text-area {
+  background: #1a1a2e;
+  border-radius: 8px;
+  padding: 1rem;
+  min-height: 160px;
+  max-height: 300px;
+  overflow-y: auto;
+  font-size: 1.1rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  border: 1px solid #0f3460;
+  margin-bottom: 0.5rem;
+}
+.text-area:empty::before {
+  content: "Click 'Start Listening' and speak...";
+  color: #555;
+}
+.visualizer-wrap {
+  position: relative;
+  height: 130px;
+  background: #0f3460;
+  border-radius: 12px;
+  margin-bottom: 0.5rem;
+  overflow: hidden;
+  opacity: 0.3;
+  transition: opacity 0.3s;
+}
+.visualizer-wrap.active { opacity: 1; }
+#visualizer {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.controls { display: flex; gap: 10px; flex-wrap: wrap; }
+.btn {
+  flex: 1;
+  padding: 12px 20px;
+  border: none;
+  border-radius: 8px;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  min-width: 90px;
+}
+.btn:active { transform: scale(0.97); }
+.btn-start {
+  background: #e94560;
+  color: white;
+}
+.btn-start:hover { background: #d63851; }
+.btn-pause {
+  background: #f5a623;
+  color: white;
+}
+.btn-pause:hover { background: #d4911e; }
+.btn-pause:disabled { background: #333; color: #555; cursor: not-allowed; }
+.btn-stop {
+  background: #533483;
+  color: white;
+}
+.btn-stop:hover { background: #462b6e; }
+.btn-stop:disabled { background: #333; color: #555; cursor: not-allowed; }
+.btn-copy {
+  background: #0f3460;
+  color: #aaa;
+}
+.btn-copy:hover { background: #1a4a8a; color: white; }
+.btn-clear {
+  background: transparent;
+  color: #555;
+  border: 1px solid #333;
+}
+.btn-clear:hover { color: #eee; border-color: #555; }
+.transcript-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+  font-size: 0.85rem;
+  color: #888;
+}
+.lang-select {
+  background: #0f3460;
+  color: #eee;
+  border: none;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.interim {
+  color: #888;
+  font-style: italic;
+}
+.toggle-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  font-size: 0.8rem;
+  color: #888;
+  cursor: pointer;
+  user-select: none;
+}
+.toggle-track {
+  width: 34px;
+  height: 18px;
+  background: #333;
+  border-radius: 10px;
+  position: relative;
+  transition: background 0.2s;
+  flex-shrink: 0;
+}
+.toggle-track.on { background: #e94560; }
+.toggle-knob {
+  width: 14px;
+  height: 14px;
+  background: #ccc;
+  border-radius: 50%;
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  transition: all 0.2s;
+}
+.toggle-track.on .toggle-knob {
+  left: 18px;
+  background: #fff;
+}
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>Speech to Text</h1>
+  <div class="status-bar">
+    <span class="indicator idle" id="indicator"></span>
+    <span id="statusText">Idle</span>
+    <select class="lang-select" id="langSelect">
+      <option value="en-US">English (US)</option>
+      <option value="en-GB">English (UK)</option>
+      <option value="es-ES">Spanish</option>
+      <option value="fr-FR">French</option>
+      <option value="de-DE">German</option>
+      <option value="it-IT">Italian</option>
+      <option value="pt-BR">Portuguese (BR)</option>
+      <option value="ja-JP">Japanese</option>
+      <option value="ko-KR">Korean</option>
+      <option value="zh-CN">Chinese (Simplified)</option>
+      <option value="ar-SA">Arabic</option>
+      <option value="hi-IN">Hindi</option>
+    </select>
+    <div class="toggle-wrap" id="autoCorrectToggle" title="Auto-correct common misspellings and grammar">
+      <span>ABC</span>
+      <div class="toggle-track" id="toggleTrack">
+        <div class="toggle-knob"></div>
+      </div>
+    </div>
+  </div>
+  <div class="visualizer-wrap" id="vizWrap">
+    <canvas id="visualizer"></canvas>
+  </div>
+  <div class="transcript-label">
+    <span>Transcript</span>
+    <span id="wordCount">0 words</span>
+  </div>
+  <div class="text-area" id="result" role="log" aria-live="assertive"></div>
+  <div class="controls">
+    <button class="btn btn-start" id="startBtn">Start Listening</button>
+    <button class="btn btn-pause" id="pauseBtn" disabled>Pause</button>
+    <button class="btn btn-stop" id="stopBtn" disabled>Stop</button>
+    <button class="btn btn-copy" id="copyBtn">Copy</button>
+    <button class="btn btn-clear" id="clearBtn">Clear</button>
+  </div>
+</div>
+<script>
+const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+let recognition, audioContext, analyser, source, stream;
+let finalTranscript = '', isPaused = false, isListening = false;
+let animId = null;
+
+const startBtn = document.getElementById('startBtn');
+const pauseBtn = document.getElementById('pauseBtn');
+const stopBtn = document.getElementById('stopBtn');
+const copyBtn = document.getElementById('copyBtn');
+const clearBtn = document.getElementById('clearBtn');
+const resultDiv = document.getElementById('result');
+const indicator = document.getElementById('indicator');
+const statusText = document.getElementById('statusText');
+const langSelect = document.getElementById('langSelect');
+const wordCount = document.getElementById('wordCount');
+const canvas = document.getElementById('visualizer');
+const vizWrap = document.getElementById('vizWrap');
+const ctx = canvas.getContext('2d');
+
+const PUNCT_MAP = {
+  'period': '.', 'dot': '.', 'point': '.',
+  'comma': ',',
+  'question mark': '?',
+  'exclamation point': '!', 'exclamation mark': '!',
+  'new line': '\n', 'newline': '\n',
+  'new paragraph': '\n\n',
+  'colon': ':',
+  'semicolon': ';',
+  'space': ' ',
+};
+const END_MARKS = ['.', '!', '?'];
+
+let autoCorrectEnabled = false;
+const toggleTrack = document.getElementById('toggleTrack');
+const autoCorrectToggle = document.getElementById('autoCorrectToggle');
+
+const CORRECTIONS = {
+  'teh': 'the', 'recieve': 'receive', 'wierd': 'weird', 'acheive': 'achieve',
+  'beleive': 'believe', 'seperate': 'separate', 'occured': 'occurred',
+  'occuring': 'occurring', 'definately': 'definitely', 'definitly': 'definitely',
+  'goverment': 'government', 'goverment': 'government', 'calender': 'calendar',
+  'neccessary': 'necessary', 'necesary': 'necessary', 'recognition': 'recognition',
+  'alot': 'a lot', 'alomst': 'almost', 'altho': 'although', 'becuz': 'because',
+  'cuz': 'because', 'dont': "don't", 'wont': "won't", 'cant': "can't",
+  'im': "I'm", 'ive': "I've", 'id': "I'd", 'ill': "I'll", 'youre': "you're",
+  'theyre': "they're", 'thats': "that's", 'whats': "what's", 'theres': "there's",
+  'heres': "here's", 'wheres': "where's", 'whos': "who's", 'its': "it's",
+  'didnt': "didn't", 'doesnt': "doesn't", 'isnt': "isn't", 'arent': "aren't",
+  'wasnt': "wasn't", 'werent': "weren't", 'havent': "haven't", 'hasnt': "hasn't",
+  'hadnt': "hadn't", 'couldnt': "couldn't", 'wouldnt': "wouldn't",
+  'shouldnt': "shouldn't", 'mightnt': "mightn't", 'mustnt': "mustn't",
+  'neednt': "needn't", 'darenot': "dare not", 'shallnot': "shall not",
+  'wont': "won't", 'cannot': "can not",
+};
+
+function applyAutoCorrect(text) {
+  if (!autoCorrectEnabled) return text;
+  const words = text.split(/(\s+)/);
+  for (let i = 0; i < words.length; i++) {
+    const w = words[i];
+    const stripped = w.replace(/[^a-zA-Z']/g, '');
+    if (!stripped) continue;
+    const lower = stripped.toLowerCase();
+    if (CORRECTIONS[lower] !== undefined) {
+      const corrected = CORRECTIONS[lower];
+      const isUpper = stripped[0] === stripped[0].toUpperCase() && stripped[0] !== stripped[0].toLowerCase();
+      words[i] = w.replace(stripped, isUpper ? corrected.charAt(0).toUpperCase() + corrected.slice(1) : corrected);
+    }
+  }
+  return words.join('');
+}
+
+function resizeCanvas() {
+  canvas.width = canvas.clientWidth * devicePixelRatio;
+  canvas.height = canvas.clientHeight * devicePixelRatio;
+}
+resizeCanvas();
+window.addEventListener('resize', resizeCanvas);
+
+function processPunctuation(text) {
+  const words = text.split(' ');
+  const out = [];
+  let capNext = false;
+  for (let w of words) {
+    const lower = w.toLowerCase();
+    if (PUNCT_MAP[lower]) {
+      const punct = PUNCT_MAP[lower];
+      if (punct === '\n' || punct === '\n\n') {
+        out.push(punct);
+      } else {
+        out.push(punct);
+      }
+      if (END_MARKS.includes(punct)) capNext = true;
+    } else {
+      if (capNext) {
+        w = w.charAt(0).toUpperCase() + w.slice(1);
+        capNext = false;
+      }
+      out.push(w);
+    }
+  }
+  let r = out.join(' ');
+  r = r.replace(/ ([.,!?;:])/g, '$1');
+  r = r.replace(/ ([ \n])/g, '$1');
+  r = r.replace(/\n +/g, '\n');
+  return applyAutoCorrect(r);
+}
+
+function updateWordCount() {
+  const text = resultDiv.textContent.trim();
+  wordCount.textContent = text ? text.split(/\s+/).length + ' words' : '0 words';
+}
+
+function setStatus(state, msg) {
+  indicator.className = 'indicator ' + state;
+  statusText.textContent = msg;
+}
+
+function updateUI() {
+  startBtn.disabled = isListening;
+  pauseBtn.disabled = !isListening;
+  stopBtn.disabled = !isListening;
+  pauseBtn.textContent = isPaused ? 'Resume' : 'Pause';
+  vizWrap.classList.toggle('active', isListening && !isPaused);
+}
+
+function stopVisualizer() {
+  if (animId) { cancelAnimationFrame(animId); animId = null; }
+  if (source) { source.disconnect(); source = null; }
+  if (audioContext && audioContext.state !== 'closed') { audioContext.close(); audioContext = null; }
+  if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+  analyser = null;
+}
+
+function startVisualizer() {
+  navigator.mediaDevices.getUserMedia({ audio: true }).then(s => {
+    stream = s;
+    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    analyser = audioContext.createAnalyser();
+    analyser.fftSize = 128;
+    source = audioContext.createMediaStreamSource(stream);
+    source.connect(analyser);
+    draw();
+  }).catch(() => {});
+}
+
+let phase = 0;
+let particles = [];
+
+function draw() {
+  if (!analyser) { animId = requestAnimationFrame(draw); return; }
+  const bufferLength = analyser.frequencyBinCount;
+  const dataArray = new Uint8Array(bufferLength);
+  analyser.getByteFrequencyData(dataArray);
+  resizeCanvas();
+  const w = canvas.width, h = canvas.height;
+
+  ctx.fillStyle = 'rgba(26, 26, 46, 0.15)';
+  ctx.fillRect(0, 0, w, h);
+
+  const barCount = 60;
+  const step = Math.floor(bufferLength / barCount);
+  const averages = [];
+  for (let i = 0; i < barCount; i++) {
+    let val = 0;
+    for (let j = 0; j < step; j++) val += dataArray[i * step + j];
+    averages.push(val / step / 255);
+  }
+
+  const bass = averages.slice(0, 4).reduce((a, b) => a + b, 0) / 4;
+  phase += 0.015 + bass * 0.01;
+
+  for (let layer = 0; layer < 3; layer++) {
+    ctx.beginPath();
+    const amp = 0.7 + layer * 0.15;
+    const freq = 1.5 + layer * 0.8;
+    const yOff = layer * 12 - 12;
+    const alpha = 0.35 - layer * 0.1;
+
+    for (let x = 0; x <= w; x += 2) {
+      const t = x / w;
+      const idx = Math.floor(t * barCount);
+      const avg = averages[Math.min(idx, barCount - 1)] || 0;
+      const smooth = avg * h * 0.35 * amp;
+      const wave = Math.sin(t * Math.PI * freq + phase + layer) * h * 0.04;
+      const y = h / 2 + wave + smooth * (t < 0.5 ? t * 2 : (1 - t) * 2) + yOff;
+
+      if (x === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+
+    const hue = 280 - layer * 40 + bass * 60;
+    ctx.shadowBlur = 25;
+    ctx.shadowColor = `hsla(${hue}, 80%, 60%, ${alpha * 0.6})`;
+    ctx.strokeStyle = `hsla(${hue}, 75%, 55%, ${alpha})`;
+    ctx.lineWidth = 4 - layer * 0.8;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.stroke();
+  }
+
+  for (let x = 0; x <= w; x += 3) {
+    const t = x / w;
+    const idx = Math.floor(t * barCount);
+    const avg = averages[Math.min(idx, barCount - 1)] || 0;
+    if (avg > 0.2) {
+      const y = h / 2 + Math.sin(t * Math.PI * 1.5 + phase) * h * 0.04 + avg * h * 0.35;
+      const hue = 280 - avg * 160;
+      ctx.shadowBlur = 15;
+      ctx.shadowColor = `hsla(${hue}, 80%, 60%, ${avg * 0.3})`;
+      ctx.fillStyle = `hsla(${hue}, 80%, 70%, ${avg * 0.15})`;
+      ctx.beginPath();
+      ctx.arc(x, y, 1 + avg * 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  if (Math.random() < bass * 0.4) {
+    particles.push({
+      x: Math.random() * w,
+      y: h / 2 + (Math.random() - 0.5) * h * 0.2,
+      vx: (Math.random() - 0.5) * 0.8,
+      vy: -0.5 - Math.random() * 1.5,
+      life: 1,
+      decay: 0.005 + Math.random() * 0.01,
+      size: 1 + Math.random() * 3,
+      hue: 280 - bass * 160,
+    });
+  }
+
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.x += p.vx;
+    p.y += p.vy;
+    p.vy += 0.01;
+    p.life -= p.decay;
+    if (p.life <= 0) { particles.splice(i, 1); continue; }
+    ctx.shadowBlur = 10;
+    ctx.shadowColor = `hsla(${p.hue}, 80%, 60%, ${p.life * 0.4})`;
+    ctx.fillStyle = `hsla(${p.hue}, 80%, 70%, ${p.life * 0.6})`;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.shadowBlur = 20;
+  ctx.shadowColor = `rgba(233, 69, 96, ${0.05 + bass * 0.15})`;
+  ctx.fillStyle = `rgba(233, 69, 96, ${0.02 + bass * 0.08})`;
+  ctx.fillRect(0, 0, w, h);
+
+  ctx.shadowBlur = 0;
+  animId = requestAnimationFrame(draw);
+}
+
+function startListening() {
+  if (isPaused) {
+    isPaused = false;
+    recognitionStart();
+    setStatus('listening', 'Listening...');
+    startVisualizer();
+    updateUI();
+    return;
+  }
+  finalTranscript = '';
+  resultDiv.innerHTML = '';
+  updateWordCount();
+  recognitionStart();
+  setStatus('listening', 'Listening...');
+  startVisualizer();
+  updateUI();
+}
+
+function recognitionStart() {
+  recognition = new SpeechRecognition();
+  recognition.continuous = true;
+  recognition.interimResults = true;
+  recognition.lang = langSelect.value;
+  isListening = true;
+
+  recognition.onstart = () => {
+    setStatus('listening', 'Listening...');
+    updateUI();
+  };
+
+  recognition.onerror = (e) => {
+    if (e.error === 'no-speech') return;
+    setStatus('idle', 'Error: ' + e.error);
+    isListening = false;
+    updateUI();
+  };
+
+  recognition.onend = () => {
+    if (isPaused) return;
+    if (!isListening) return;
+    setStatus('idle', 'Restarting...');
+    recognition.start();
+  };
+
+  recognition.onresult = (e) => {
+    let interim = '';
+    let tempFinal = '';
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      const r = e.results[i];
+      if (r.isFinal) {
+        const processed = processPunctuation(r[0].transcript.trim());
+        tempFinal += processed + ' ';
+      } else {
+        interim += r[0].transcript;
+      }
+    }
+    finalTranscript += tempFinal;
+    const displayFinal = processPunctuation(finalTranscript);
+    if (displayFinal.endsWith('. ') || displayFinal.endsWith('! ') || displayFinal.endsWith('? ')) {
+      finalTranscript = displayFinal;
+    }
+    resultDiv.innerHTML = displayFinal + (interim ? '<span class="interim">' + interim + '</span>' : '');
+    resultDiv.scrollTop = resultDiv.scrollHeight;
+    updateWordCount();
+  };
+
+  recognition.start();
+}
+
+function pauseListening() {
+  if (!isPaused) {
+    isPaused = true;
+    if (recognition) {
+      recognition.stop();
+      recognition.onend = null;
+    }
+    stopVisualizer();
+    setStatus('paused', 'Paused');
+    updateUI();
+  } else {
+    isPaused = false;
+    recognitionStart();
+    setStatus('listening', 'Listening...');
+    startVisualizer();
+    updateUI();
+  }
+}
+
+function stopListening() {
+  isPaused = false;
+  isListening = false;
+  if (recognition) {
+    recognition.stop();
+    recognition.onend = null;
+  }
+  stopVisualizer();
+  setStatus('idle', 'Idle');
+  updateUI();
+}
+
+if (!SpeechRecognition) {
+  resultDiv.textContent = 'Speech recognition is not supported in this browser. Please use Chrome or Edge.';
+  startBtn.disabled = true;
+} else {
+  startBtn.addEventListener('click', startListening);
+  pauseBtn.addEventListener('click', pauseListening);
+  stopBtn.addEventListener('click', stopListening);
+}
+
+copyBtn.addEventListener('click', () => {
+  const text = resultDiv.textContent;
+  if (!text.trim()) return;
+  navigator.clipboard.writeText(text).then(() => {
+    const orig = copyBtn.textContent;
+    copyBtn.textContent = 'Copied!';
+    setTimeout(() => copyBtn.textContent = orig, 1500);
+  });
+});
+
+clearBtn.addEventListener('click', () => {
+  finalTranscript = '';
+  resultDiv.innerHTML = '';
+  updateWordCount();
+});
+
+autoCorrectToggle.addEventListener('click', () => {
+  autoCorrectEnabled = !autoCorrectEnabled;
+  toggleTrack.classList.toggle('on', autoCorrectEnabled);
+  if (finalTranscript) {
+    const corrected = processPunctuation(finalTranscript);
+    finalTranscript = corrected;
+    resultDiv.innerHTML = corrected;
+    updateWordCount();
+  }
+});
+</script>
+</body>
+</html>
